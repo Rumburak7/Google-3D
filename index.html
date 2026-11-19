@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Mój Edytor 3D - Tinkercad Clone</title>
+    <title>Mój Edytor 3D - Tinkercad Pro</title>
     <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,28 +13,56 @@
             <button id="btn-translate" class="active" title="Przesuwanie (W)">Przesuń</button>
             <button id="btn-rotate" title="Obracanie (E)">Obróć</button>
             <button id="btn-scale" title="Skalowanie (R)">Skaluj</button>
-            <button id="btn-drop" title="Postaw równo na płycie (D)">Na płytę</button>
-            <button id="btn-focus" title="Pokaż zaznaczony (F)">Pokaż zaznaczony</button>
-            <button id="btn-fit-all" title="Widok całości (Home)">Widok całości</button>
+            <button id="btn-drop" title="Postaw na płycie (D)">Na płytę</button>
+            <button id="btn-duplicate" title="Duplikuj (Ctrl+D)">Duplikuj</button>
+            <button id="btn-mirror" title="Odbicie lustrzane (M)">Lustro</button>
+            <button id="btn-group" title="Grupuj / Wytnij otwory (Ctrl+G)">Grupuj</button>
+            <button id="btn-ungroup" title="Rozgrupuj (Ctrl+Shift+G)">Rozgrupuj</button>
+            <button id="btn-align" title="Wyrównaj zaznaczone (L)">Wyrównaj</button>
+            <button id="btn-ruler" title="Linijka pomiarowa">Linijka</button>
+            <button id="btn-undo" title="Cofnij (Ctrl+Z)">Cofnij</button>
+            <button id="btn-redo" title="Ponów (Ctrl+Y)">Ponów</button>
             <button id="btn-delete" class="danger" title="Usuń (Delete)">Usuń</button>
         </div>
         <div class="project-tools">
-            <button id="btn-save-file" title="Zapisz projekt na dysk">Zapisz projekt</button>
-            <button id="btn-load-file" title="Otwórz projekt z dysku">Otwórz projekt</button>
+            <button id="btn-import-stl" title="Wczytaj własny plik STL">Import STL</button>
+            <input type="file" id="stl-input" accept=".stl" style="display: none;">
+            <button id="btn-save-file" title="Zapisz projekt na dysk">Zapisz</button>
+            <button id="btn-load-file" title="Otwórz projekt z dysku">Otwórz</button>
             <input type="file" id="file-input" accept=".json" style="display: none;">
-            <button id="btn-clear-scene" class="danger" title="Wyczyść całą scenę">Nowy</button>
+            <button id="btn-clear-scene" class="danger" title="Nowy pusty projekt">Nowy</button>
         </div>
         <div class="export-tools">
-            <button id="btn-export-stl" class="export">Eksportuj STL</button>
-            <button id="btn-export-3mf" class="export">Eksportuj 3MF</button>
+            <button id="btn-export-stl" class="export">STL</button>
+            <button id="btn-export-3mf" class="export">3MF</button>
         </div>
     </div>
 
+    <!-- Pasek szybkiego wyrównywania i lustra -->
+    <div id="subbar" class="hidden"></div>
+
     <div id="main-container">
         <div id="canvas-container">
-            <div id="help-bar">Lewy = obrót | Prawy = przesuwanie | Kółko = przybliżanie | F = pokaż zaznaczony | Home = widok całości</div>
+            <div id="ruler-readout" class="hidden">Linijka: X: 0 mm | Z: 0 mm</div>
+            <div id="bottom-bar">
+                <span>Lewy = obrót | Prawy = przesuwanie | Kółko = przybliżanie pod kursor | F = pokaż zaznaczony | Home = widok całości</span>
+                <div class="bottom-controls">
+                    <button id="btn-focus" title="Pokaż zaznaczony (F)">Pokaż zaznaczony</button>
+                    <button id="btn-fit-all" title="Widok całości (Home)">Widok całości</button>
+                    <label for="snap-select">Siatka:</label>
+                    <select id="snap-select">
+                        <option value="0">Wyłączona</option>
+                        <option value="0.5">0.5 mm</option>
+                        <option value="1" selected>1 mm</option>
+                        <option value="2">2 mm</option>
+                        <option value="5">5 mm</option>
+                    </select>
+                </div>
+            </div>
         </div>
+
         <div id="sidebar">
+            <!-- Panel właściwości zaznaczonego obiektu -->
             <div id="inspector" class="hidden">
                 <h3>Właściwości obiektu</h3>
                 <div class="mode-switch">
@@ -81,8 +109,77 @@
                 <hr class="divider">
             </div>
 
-            <h3>Moje Obiekty</h3>
-            <p class="hint">Kliknij, aby dodać na scenę:</p>
+            <!-- Generator Śrub i Nakrętek -->
+            <div class="generator-box">
+                <h3>Generator Śrub i Gwintów</h3>
+                <div class="prop-row">
+                    <label>Typ:</label>
+                    <select id="screw-type">
+                        <option value="bolt">Śruba sześciokątna</option>
+                        <option value="nut">Nakrętka sześciokątna</option>
+                        <option value="rod">Pręt / Otwór gwintowany</option>
+                    </select>
+                </div>
+                <div class="prop-row">
+                    <label>Rozmiar ISO:</label>
+                    <select id="screw-preset">
+                        <option value="custom">Własny wymiar</option>
+                        <option value="3,0.5,5.5,2">M3 (skok 0.5)</option>
+                        <option value="4,0.7,7,2.8">M4 (skok 0.7)</option>
+                        <option value="5,0.8,8,3.5">M5 (skok 0.8)</option>
+                        <option value="6,1.0,10,4">M6 (skok 1.0)</option>
+                        <option value="8,1.25,13,5.3" selected>M8 (skok 1.25)</option>
+                        <option value="10,1.5,17,6.4">M10 (skok 1.5)</option>
+                        <option value="12,1.75,19,7.5">M12 (skok 1.75)</option>
+                        <option value="16,2.0,24,10">M16 (skok 2.0)</option>
+                        <option value="20,2.5,30,12.5">M20 (skok 2.5)</option>
+                    </select>
+                </div>
+                <div class="grid-inputs">
+                    <div>
+                        <label>Średn. (mm)</label>
+                        <input type="number" id="screw-diam" value="8" step="0.5" min="2">
+                    </div>
+                    <div>
+                        <label>Skok (mm)</label>
+                        <input type="number" id="screw-pitch" value="1.25" step="0.05" min="0.2">
+                    </div>
+                    <div>
+                        <label>Dług. (mm)</label>
+                        <input type="number" id="screw-len" value="20" step="1" min="2">
+                    </div>
+                </div>
+                <div class="grid-inputs" style="margin-top: 6px;">
+                    <div>
+                        <label>Klucz (mm)</label>
+                        <input type="number" id="screw-head-w" value="13" step="0.5" min="3">
+                    </div>
+                    <div>
+                        <label>Wys. łba</label>
+                        <input type="number" id="screw-head-h" value="5.3" step="0.2" min="1">
+                    </div>
+                    <div>
+                        <label>Luz (mm)</label>
+                        <input type="number" id="screw-tol" value="0.25" step="0.05" min="0">
+                    </div>
+                </div>
+                <button id="btn-add-screw" class="full-btn" style="margin-top: 8px;">Dodaj śrubę / nakrętkę</button>
+            </div>
+
+            <hr class="divider">
+
+            <!-- Generator Tekstu 3D -->
+            <div class="generator-box">
+                <h3>Tekst 3D</h3>
+                <div class="text-row">
+                    <input type="text" id="text-3d-input" value="CAD 3D" placeholder="Wpisz tekst...">
+                    <button id="btn-add-text">Dodaj</button>
+                </div>
+            </div>
+
+            <hr class="divider">
+
+            <h3>Podstawowe Kształty (20 mm)</h3>
             <div id="shapes-list"></div>
         </div>
     </div>
@@ -90,10 +187,10 @@
     <script type="importmap">
         {
             "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
-                "three-mesh-bvh": "https://unpkg.com/three-mesh-bvh@0.7.3/build/index.module.js",
-                "three-bvh-csg": "https://unpkg.com/three-bvh-csg@0.0.16/build/index.module.js"
+                "three": "https://unpkg.com",
+                "three/addons/": "https://unpkg.com",
+                "three-mesh-bvh": "https://unpkg.com",
+                "three-bvh-csg": "https://unpkg.com"
             }
         }
     </script>
