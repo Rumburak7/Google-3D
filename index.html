@@ -10,6 +10,8 @@
     <div id="topbar">
         <div class="logo">Mój CAD 3D</div>
         <div class="tools">
+            <button id="btn-drop" title="Postaw równo na płycie (D)">Na płytę</button>
+            <button id="btn-duplicate" title="Duplikuj obiekt (Ctrl+D)">Duplikuj</button>
             <button id="btn-translate" class="active" title="Przesuwanie (W)">Przesuń</button>
             <button id="btn-rotate" title="Obracanie (E)">Obróć</button>
             <button id="btn-scale" title="Skalowanie (R)">Skaluj</button>
@@ -32,7 +34,18 @@
 
     <div id="main-container">
         <div id="canvas-container">
-            <div id="help-bar">Lewy = obrót | Prawy = przesuwanie | Kółko = przybliżanie | F = pokaż zaznaczony | Home = widok całości</div>
+                        <div id="help-bar">
+                <span>Lewy = obrót | Prawy = przesuwanie | Kółko = przybliżanie | F = pokaż | Home = całość | Ctrl+D = duplikuj</span>
+                <label for="snap-select" style="margin-left: 12px; color: #3498db; font-weight: bold;">Siatka:</label>
+                <select id="snap-select" style="background: #2c3e50; color: white; border: 1px solid #4b6584; border-radius: 4px; padding: 2px 5px; pointer-events: auto;">
+                    <option value="0">Wyłączona</option>
+                    <option value="0.5">0.5 mm</option>
+                    <option value="1" selected>1 mm</option>
+                    <option value="2">2 mm</option>
+                    <option value="5">5 mm</option>
+                </select>
+            </div>
+
         </div>
         <div id="sidebar">
             <div id="inspector" class="hidden">
