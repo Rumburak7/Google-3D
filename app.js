@@ -198,3 +198,272 @@ orbitControls.dampingFactor = 0.1;
 orbitControls.enableZoom = false; // Własny precyzyjny zoom pod kursor
 orbitControls.screenSpacePanning = false;
 orbitControls.minDistance = 2;
+
+// =========================================================================
+// 5. ZARZĄDZANIE OBIEKTAMI, WYMIARAMI (MM), GRUPOWANIEM I HISTORIĄ
+// =========================================================================
+function createHoleTexture() {
+    const canvas = document.createElement('canvas');
+    canvas.width = 64; canvas.height = 64;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#555555'; ctx.fillRect(0, 0, 64, 64);
+    ctx.strokeStyle = '#999999'; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(-16, 64); ctx.lineTo(64, -16); ctx.moveTo(0, 80); ctx.lineTo(80, 0); ctx.stroke();
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(4, 4);
+    return tex;
+}
+const holeTexture = createHoleTexture();
+
+const sceneObjects = [];
+let selectedObjects = [];
+let undoStack = [];
+let redoStack = [];
+const selectionGroup = new THREE.Group();
+scene.add(selectionGroup);
+
+function getObjectBounds(obj) {
+    obj.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(obj);
+    const size = new THREE.Vector3();
+    box.getSize(size);
+    return { box, size };
+}
+
+function dropToWorkplane(mesh) {
+    const { box } = getObjectBounds(mesh);
+    mesh.position.y -= box.min.y;
+    mesh.updateMatrixWorld(true);
+}
+
+function keepAboveWorkplane(mesh) {
+    const { box } = getObjectBounds(mesh);
+    if (box.min.y < 0) {
+        mesh.position.y -= box.min.y;
+        mesh.updateMatrixWorld(true);
+    }
+}
+
+function applyObjectAppearance(mesh) {
+    if (mesh.userData.isHole) {
+        mesh.material.color.set('#aaaaaa');
+        mesh.material.map = holeTexture;
+        mesh.material.transparent = true;
+        mesh.material.opacity = 0.55;
+    } else {
+        mesh.material.color.set(mesh.userData.solidColor);
+        mesh.material.map = null;
+        mesh.material.transparent = false;
+        mesh.material.opacity = 1.0;
+    }
+    mesh.material.needsUpdate = true;
+}
+
+function createSceneMesh(geometry, name, solidColor, isHole = false, customData = {}) {
+    const mat = new THREE.MeshStandardMaterial({ color: solidColor, roughness: 0.4, metalness: 0.1 });
+    const mesh = new THREE.Mesh(geometry, mat);
+    mesh.castShadow = true;
+    mesh.receiveShadow = true;
+    mesh.name = name;
+    mesh.userData = { solidColor, isHole, ...customData };
+    applyObjectAppearance(mesh);
+    return mesh;
+}
+
+// =========================================================================
+// 6. GENEROWANIE MENU KSZTAŁTÓW, ŚRUB I TEKSTU 3D
+// =========================================================================
+const shapesListEl = document.getElementById('shapes-list');
+MOJE_OBIEKTY.forEach((item) => {
+    const btn = document.createElement('button');
+    btn.className = 'shape-btn';
+    const svgFn = IKONY_SVG[item.ikona] || IKONY_SVG.szescian;
+    btn.innerHTML = `<div class="shape-icon">${svgFn(item.kolor)}</div><span>${item.nazwa}</span>`;
+    btn.onclick = () => {
+        pushUndoState();
+        const mesh = createSceneMesh(item.stworzGeometrie(), item.nazwa, item.kolor, false, { templateId: item.id });
+        dropToWorkplane(mesh);
+        scene.add(mesh);
+        sceneObjects.push(mesh);
+        setSelection([mesh]);
+        saveProjectToLocal();
+    };
+    shapesListEl.appendChild(btn);
+});
+
+// Presety śrub ISO
+const screwPresetEl = document.getElementById('screw-preset');
+const screwTypeEl = document.getElementById('screw-type');
+const screwDiamEl = document.getElementById('screw-diam');
+const screwPitchEl = document.getElementById('screw-pitch');
+const screwLenEl = document.getElementById('screw-len');
+const screwHeadWEl = document.getElementById('screw-head-w');
+const screwHeadHEl = document.getElementById('screw-head-h');
+const screwTolEl = document.getElementById('screw-tol');
+
+screwPresetEl.addEventListener('change', (e) => {
+    if (e.target.value === 'custom') return;
+    const [d, p, hw, hh] = e.target.value.split(',').map(Number);
+    screwDiamEl.value = d;
+    screwPitchEl.value = p;
+    screwHeadWEl.value = hw;
+    screwHeadHEl.value = hh;
+});
+
+document.getElementById('btn-add-screw').onclick = () => {
+    pushUndoState();
+    const params = {
+        type: screwTypeEl.value,
+        diameter: parseFloat(screwDiamEl.value) || 8,
+        pitch: parseFloat(screwPitchEl.value) || 1.25,
+        length: parseFloat(screwLenEl.value) || 20,
+        headW: parseFloat(screwHeadWEl.value) || 13,
+        headH: parseFloat(screwHeadHEl.value) || 5.3,
+        tolerance: parseFloat(screwTolEl.value) || 0.25
+    };
+    const geom = generateScrewGeometry(params);
+    const label = params.type === 'bolt' ? `Śruba M${params.diameter}` : (params.type === 'nut' ? `Nakrętka M${params.diameter}` : `Gwint M${params.diameter}`);
+    const mesh = createSceneMesh(geom, label, '#95a5a6', false, { screwParams: params });
+    dropToWorkplane(mesh);
+    scene.add(mesh);
+    sceneObjects.push(mesh);
+    setSelection([mesh]);
+    saveProjectToLocal();
+};
+
+// Tekst 3D
+let loadedFont = null;
+const fontLoader = new FontLoader();
+fontLoader.load('https://unpkg.com', (font) => {
+    loadedFont = font;
+});
+
+document.getElementById('btn-add-text').onclick = () => {
+    const txt = document.getElementById('text-3d-input').value.trim();
+    if (!txt) return;
+    if (!loadedFont) return alert('Czcionka 3D jeszcze się ładuje, spróbuj za sekundę.');
+    pushUndoState();
+    let geom = new TextGeometry(txt, { font: loadedFont, size: 8, height: 4, curveSegments: 8, bevelEnabled: false });
+    geom.rotateX(-Math.PI / 2);
+    geom.center();
+    geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
+    geom.computeVertexNormals();
+    const mesh = createSceneMesh(geom, `Tekst: ${txt}`, '#e74c3c', false, { text3d: txt });
+    dropToWorkplane(mesh);
+    scene.add(mesh);
+    sceneObjects.push(mesh);
+    setSelection([mesh]);
+    saveProjectToLocal();
+};
+
+// =========================================================================
+// 7. ZAZNACZANIE (W TYM SHIFT + KLIK), STRZAŁKI I INSPEKTOR WYMIARÓW
+// =========================================================================
+const inspectorEl = document.getElementById('inspector');
+const colorPicker = document.getElementById('color-picker');
+const btnModeSolid = document.getElementById('mode-solid');
+const btnModeHole = document.getElementById('mode-hole');
+const inputDimX = document.getElementById('dim-x');
+const inputDimY = document.getElementById('dim-y');
+const inputDimZ = document.getElementById('dim-z');
+const inputPosX = document.getElementById('pos-x');
+const inputPosY = document.getElementById('pos-y');
+const inputPosZ = document.getElementById('pos-z');
+const snapSelect = document.getElementById('snap-select');
+const rulerReadout = document.getElementById('ruler-readout');
+
+function updateSnapSettings() {
+    const step = parseFloat(snapSelect.value);
+    transformControls.setTranslationSnap(step > 0 ? step : null);
+    transformControls.setRotationSnap(THREE.MathUtils.degToRad(15));
+}
+snapSelect.addEventListener('change', updateSnapSettings);
+updateSnapSettings();
+
+transformControls.addEventListener('dragging-changed', (event) => {
+    orbitControls.enabled = !event.value;
+    isDraggingGizmo = event.value;
+    if (event.value) {
+        pushUndoState();
+    } else {
+        finalizeTransformAttachment();
+        selectedObjects.forEach(keepAboveWorkplane);
+        reattachGizmo();
+        updateInspector();
+        saveProjectToLocal();
+    }
+});
+
+transformControls.addEventListener('change', () => {
+    if (isDraggingGizmo && selectedObjects.length > 0) {
+        updateInspector();
+    }
+});
+
+function finalizeTransformAttachment() {
+    if (selectedObjects.length > 1 && selectionGroup.children.length > 0) {
+        const children = [...selectionGroup.children];
+        children.forEach(child => scene.attach(child));
+    }
+}
+
+function reattachGizmo() {
+    transformControls.detach();
+    if (selectedObjects.length === 1) {
+        transformControls.attach(selectedObjects);
+    } else if (selectedObjects.length > 1) {
+        const box = new THREE.Box3();
+        selectedObjects.forEach(o => box.expandByObject(o));
+        const center = new THREE.Vector3();
+        box.getCenter(center);
+        selectionGroup.position.copy(center);
+        selectionGroup.rotation.set(0, 0, 0);
+        selectionGroup.scale.set(1, 1, 1);
+        selectionGroup.updateMatrixWorld(true);
+        selectedObjects.forEach(o => selectionGroup.attach(o));
+        transformControls.attach(selectionGroup);
+    }
+}
+
+function setSelection(objs) {
+    finalizeTransformAttachment();
+    selectedObjects = objs;
+    reattachGizmo();
+    if (selectedObjects.length > 0) {
+        inspectorEl.classList.remove('hidden');
+        updateInspector();
+    } else {
+        inspectorEl.classList.add('hidden');
+        rulerReadout.classList.add('hidden');
+    }
+}
+
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+renderer.domElement.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    if (isDraggingGizmo || transformControls.axis !== null) return;
+
+    const rect = renderer.domElement.getBoundingClientRect();
+    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(sceneObjects, false);
+
+    if (intersects.length > 0) {
+        const hit = intersects.object;
+        if (event.shiftKey) {
+            const exists = selectedObjects.includes(hit);
+            const next = exists ? selectedObjects.filter(o => o !== hit) : [...selectedObjects, hit];
+            setSelection(next);
+        } else {
+            setSelection([hit]);
+        }
+    } else if (!event.shiftKey) {
+        setSelection([]);
+    }
+});
+
+
