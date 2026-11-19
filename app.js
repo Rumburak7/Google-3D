@@ -291,7 +291,6 @@ MOJE_OBIEKTY.forEach((item) => {
     shapesListEl.appendChild(btn);
 });
 
-// Presety śrub ISO
 const screwPresetEl = document.getElementById('screw-preset');
 const screwTypeEl = document.getElementById('screw-type');
 const screwDiamEl = document.getElementById('screw-diam');
@@ -331,7 +330,6 @@ document.getElementById('btn-add-screw').onclick = () => {
     saveProjectToLocal();
 };
 
-// Tekst 3D
 let loadedFont = null;
 const fontLoader = new FontLoader();
 fontLoader.load('https://unpkg.com', (font) => {
@@ -410,7 +408,7 @@ function finalizeTransformAttachment() {
 function reattachGizmo() {
     transformControls.detach();
     if (selectedObjects.length === 1) {
-        transformControls.attach(selectedObjects);
+        transformControls.attach(selectedObjects[0]);
     } else if (selectedObjects.length > 1) {
         const box = new THREE.Box3();
         selectedObjects.forEach(o => box.expandByObject(o));
@@ -453,7 +451,7 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
     const intersects = raycaster.intersectObjects(sceneObjects, false);
 
     if (intersects.length > 0) {
-        const hit = intersects.object;
+        const hit = intersects[0].object;
         if (event.shiftKey) {
             const exists = selectedObjects.includes(hit);
             const next = exists ? selectedObjects.filter(o => o !== hit) : [...selectedObjects, hit];
@@ -466,4 +464,4 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
     }
 });
 
-
+renderer.domElement.addEventListener('dblclick', () => {
