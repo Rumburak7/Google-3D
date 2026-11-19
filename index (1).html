@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mój Edytor 3D - Tinkercad Clone</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="topbar">
+        <div class="logo">Mój CAD 3D</div>
+        <div class="tools">
+            <button id="btn-translate" class="active" title="Przesuwanie (W)">Przesuń</button>
+            <button id="btn-rotate" title="Obracanie (E)">Obróć</button>
+            <button id="btn-scale" title="Skalowanie (R)">Skaluj</button>
+            <button id="btn-drop" title="Postaw równo na płycie (D)">Na płytę</button>
+            <button id="btn-focus" title="Pokaż zaznaczony (F)">Pokaż zaznaczony</button>
+            <button id="btn-fit-all" title="Widok całości (Home)">Widok całości</button>
+            <button id="btn-delete" class="danger" title="Usuń (Delete)">Usuń</button>
+        </div>
+        <div class="project-tools">
+            <button id="btn-save-file" title="Zapisz projekt na dysk">Zapisz projekt</button>
+            <button id="btn-load-file" title="Otwórz projekt z dysku">Otwórz projekt</button>
+            <input type="file" id="file-input" accept=".json" style="display: none;">
+            <button id="btn-clear-scene" class="danger" title="Wyczyść całą scenę">Nowy</button>
+        </div>
+        <div class="export-tools">
+            <button id="btn-export-stl" class="export">Eksportuj STL</button>
+            <button id="btn-export-3mf" class="export">Eksportuj 3MF</button>
+        </div>
+    </div>
+
+    <div id="main-container">
+        <div id="canvas-container">
+            <div id="help-bar">Lewy = obrót | Prawy = przesuwanie | Kółko = przybliżanie | F = pokaż zaznaczony | Home = widok całości</div>
+        </div>
+        <div id="sidebar">
+            <div id="inspector" class="hidden">
+                <h3>Właściwości obiektu</h3>
+                <div class="mode-switch">
+                    <button id="mode-solid" class="active">Bryła</button>
+                    <button id="mode-hole">Otwór</button>
+                </div>
+
+                <div class="prop-row">
+                    <label for="color-picker">Kolor:</label>
+                    <input type="color" id="color-picker" value="#ff5722">
+                </div>
+
+                <h4>Wymiary (mm)</h4>
+                <div class="grid-inputs">
+                    <div>
+                        <label>Szer. (X)</label>
+                        <input type="number" id="dim-x" step="0.5" min="0.5">
+                    </div>
+                    <div>
+                        <label>Głęb. (Z)</label>
+                        <input type="number" id="dim-z" step="0.5" min="0.5">
+                    </div>
+                    <div>
+                        <label>Wys. (Y)</label>
+                        <input type="number" id="dim-y" step="0.5" min="0.5">
+                    </div>
+                </div>
+
+                <h4>Pozycja (mm)</h4>
+                <div class="grid-inputs">
+                    <div>
+                        <label>Pos X</label>
+                        <input type="number" id="pos-x" step="1">
+                    </div>
+                    <div>
+                        <label>Pos Z</label>
+                        <input type="number" id="pos-z" step="1">
+                    </div>
+                    <div>
+                        <label>Nad płytą (Y)</label>
+                        <input type="number" id="pos-y" step="1">
+                    </div>
+                </div>
+                <hr class="divider">
+            </div>
+
+            <h3>Moje Obiekty</h3>
+            <p class="hint">Kliknij, aby dodać na scenę:</p>
+            <div id="shapes-list"></div>
+        </div>
+    </div>
+
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+                "three-mesh-bvh": "https://unpkg.com/three-mesh-bvh@0.7.3/build/index.module.js",
+                "three-bvh-csg": "https://unpkg.com/three-bvh-csg@0.0.16/build/index.module.js"
+            }
+        }
+    </script>
+    <script type="module" src="app.js"></script>
+</body>
+</html>
