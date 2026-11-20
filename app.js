@@ -229,7 +229,7 @@ MOJE_OBIEKTY.forEach((item) => {
 const btn = document.createElement('button');
 btn.className = 'shape-btn';
 const svgFn = IKONY_SVG[item.ikona] || IKONY_SVG.szescian;
-btn.innerHTML = <div class="shape-icon">${svgFn(item.kolor)}</div><span>${item.nazwa}</span>;
+btn.innerHTML = `<div class="shape-icon">${svgFn(item.kolor)}</div><span>${item.nazwa}</span>`;
 btn.onclick = () => {
 const mesh = createMeshFromTemplate(item);
 scene.add(mesh);
