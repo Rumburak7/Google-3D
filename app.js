@@ -6,7 +6,7 @@ import * as BufferGeometryUtils from 'three/addons/utils/BufferGeometryUtils.js'
 import { Brush, Evaluator, SUBTRACTION } from 'three-bvh-csg';
 
 // =========================================================================
-// 1. TWOJA BAZA OBIEKTÓW - TUTAJ DODAJESZ WŁASNE RZECZY!
+// 1. TWOJA BAZA OBIEKTÓW (STANDARD TINKERCAD 20x20x20 MM)
 // =========================================================================
 const IKONY_SVG = {
     szescian: (c) => `<svg viewBox="0 0 64 64"><polygon points="32,8 56,20 32,32 8,20" fill="${c}" opacity="0.9"/><polygon points="8,20 32,32 32,56 8,44" fill="${c}" opacity="0.7"/><polygon points="56,20 32,32 32,56 56,44" fill="${c}"/></svg>`,
@@ -39,7 +39,7 @@ const MOJE_OBIEKTY = [
         nazwa: "Kula",
         kolor: "#3498db",
         ikona: "kula",
-        stworzGeometrie: () => new THREE.SphereGeometry(12, 32, 24)
+        stworzGeometrie: () => new THREE.SphereGeometry(10, 32, 24)
     },
     {
         id: "stozek",
@@ -53,7 +53,11 @@ const MOJE_OBIEKTY = [
         nazwa: "Pierścień",
         kolor: "#2ecc71",
         ikona: "pierscien",
-        stworzGeometrie: () => new THREE.TorusGeometry(10, 3, 16, 48)
+        stworzGeometrie: () => {
+            const g = new THREE.TorusGeometry(8, 2, 16, 48);
+            g.rotateX(Math.PI / 2);
+            return g;
+        }
     },
     {
         id: "rurka",
@@ -78,22 +82,22 @@ const MOJE_OBIEKTY = [
         kolor: "#f1c40f",
         ikona: "dach",
         stworzGeometrie: () => {
-            const geom = new THREE.CylinderGeometry(0, 14, 20, 4);
+            const geom = new THREE.CylinderGeometry(0, 14.14, 20, 4);
             geom.rotateY(Math.PI / 4);
             return geom;
         }
     },
     {
         id: "plytka",
-        nazwa: "Płytka baza",
+        nazwa: "Płytka 20x20",
         kolor: "#95a5a6",
         ikona: "plytka",
-        stworzGeometrie: () => new THREE.BoxGeometry(40, 4, 40)
+        stworzGeometrie: () => new THREE.BoxGeometry(20, 2, 20)
     }
 ];
 
 // =========================================================================
-// 2. INICJALIZACJA SCENY 3D
+// 2. INICJALIZACJA SCENY 3D I KAMERY
 // =========================================================================
 const container = document.getElementById('canvas-container');
 const scene = new THREE.Scene();
@@ -107,7 +111,6 @@ renderer.setSize(container.clientWidth, container.clientHeight);
 renderer.shadowMap.enabled = true;
 container.appendChild(renderer.domElement);
 
-// Oświetlenie
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.7);
 scene.add(ambientLight);
 
@@ -116,7 +119,6 @@ dirLight.position.set(60, 120, 80);
 dirLight.castShadow = true;
 scene.add(dirLight);
 
-// Płaszczyzna robocza (200x200 mm)
 const gridHelper = new THREE.GridHelper(200, 20, 0x3498db, 0x444444);
 scene.add(gridHelper);
 
@@ -128,19 +130,94 @@ workplane.position.y = -0.05;
 workplane.receiveShadow = true;
 scene.add(workplane);
 
-// Sterowanie kamerą (OrbitControls - bez własnego zoomu, obsłużymy go precyzyjniej)
 const orbitControls = new OrbitControls(camera, renderer.domElement);
 orbitControls.enableDamping = true;
-orbitControls.dampingFactor = 0.08;
-orbitControls.enableZoom = false; // Własna obsługa kółka myszy poniżej!
-orbitControls.screenSpacePanning = false; // Prawy przycisk przesuwa równolegle do płyty
+orbitControls.dampingFactor = 0.1;
+orbitControls.enableZoom = false;
+orbitControls.screenSpacePanning = false;
 orbitControls.minDistance = 2;
-orbitControls.maxDistance = 600;
-orbitControls.maxPolarAngle = Math.PI / 2 - 0.02;
+orbitControls.maxDistance = 500;
+orbitControls.maxPolarAngle = Math.PI / 2 - 0.03;
 
-// Sterowanie obiektami (strzałki)
 const transformControls = new TransformControls(camera, renderer.domElement);
 let isDraggingGizmo = false;
+scene.add(transformControls);
+
+const snapSelect = document.getElementById('snap-select');
+function updateSnap() {
+    if (!snapSelect) return;
+    const step = parseFloat(snapSelect.value);
+    transformControls.setTranslationSnap(step > 0 ? step : null);
+    transformControls.setRotationSnap(THREE.MathUtils.degToRad(15));
+}
+if (snapSelect) {
+    snapSelect.addEventListener('change', updateSnap);
+    updateSnap();
+}
+// =========================================================================
+// 3. PŁYNNY ZOOM POD KURSOR, NAJAZD KAMERY (F / HOME) I OBIEKTY
+// =========================================================================
+let camAnimTargetPos = null;
+let camAnimTargetLook = null;
+
+function focusCameraOnBox(box) {
+    const center = new THREE.Vector3();
+    const size = new THREE.Vector3();
+    box.getCenter(center);
+    box.getSize(size);
+    const maxDim = Math.max(size.x, size.y, size.z, 10);
+    const dist = maxDim * 2.2;
+    const dir = camera.position.clone().sub(orbitControls.target).normalize();
+    if (dir.lengthSq() < 0.001) dir.set(1, 1, 1).normalize();
+    camAnimTargetLook = center.clone();
+    camAnimTargetPos = center.clone().add(dir.multiplyScalar(dist));
+}
+
+function focusSelected() {
+    if (!selectedObject) return;
+    selectedObject.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(selectedObject);
+    focusCameraOnBox(box);
+}
+
+function fitAllObjects() {
+    if (sceneObjects.length === 0) {
+        camAnimTargetLook = new THREE.Vector3(0, 0, 0);
+        camAnimTargetPos = new THREE.Vector3(80, 80, 100);
+        return;
+    }
+    const box = new THREE.Box3();
+    sceneObjects.forEach(o => { o.updateMatrixWorld(true); box.expandByObject(o); });
+    focusCameraOnBox(box);
+}
+
+const wheelRaycaster = new THREE.Raycaster();
+const wheelMouse = new THREE.Vector2();
+const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
+
+renderer.domElement.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    camAnimTargetPos = null;
+    const rect = renderer.domElement.getBoundingClientRect();
+    wheelMouse.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
+    wheelMouse.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
+    wheelRaycaster.setFromCamera(wheelMouse, camera);
+    let hitPoint = new THREE.Vector3();
+    const hits = wheelRaycaster.intersectObjects(sceneObjects, false);
+    if (hits.length > 0) {
+        hitPoint.copy(hits[0].point);
+    } else if (!wheelRaycaster.ray.intersectPlane(groundPlane, hitPoint)) {
+        hitPoint.copy(orbitControls.target);
+    }
+    const factor = e.deltaY < 0 ? 0.85 : 1.18;
+    const currentDist = camera.position.distanceTo(hitPoint);
+    if ((factor < 1 && currentDist < 2.2) || (factor > 1 && currentDist > 480)) return;
+    camera.position.lerp(hitPoint, 1 - factor);
+    orbitControls.target.lerp(hitPoint, 1 - factor);
+    orbitControls.update();
+}, { passive: false });
+
+renderer.domElement.addEventListener('pointerdown', () => { camAnimTargetPos = null; });
 
 transformControls.addEventListener('dragging-changed', (event) => {
     orbitControls.enabled = !event.value;
@@ -159,155 +236,15 @@ transformControls.addEventListener('change', () => {
     }
 });
 
-scene.add(transformControls);
-
-// =========================================================================
-// 2B. PRECYZYJNE PRZYBLIŻANIE KÓŁKIEM MYSZY W PUNKT POD KURSOREM
-// =========================================================================
-let cameraAnim = null;
-const zoomRaycaster = new THREE.Raycaster();
-const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
-
-renderer.domElement.addEventListener('wheel', (event) => {
-    event.preventDefault();
-    cameraAnim = null; // Przerwij ewentualną animację F / Home
-
-    const rect = renderer.domElement.getBoundingClientRect();
-    const ndc = new THREE.Vector2(
-        ((event.clientX - rect.left) / rect.width) * 2 - 1,
-        -((event.clientY - rect.top) / rect.height) * 2 + 1
-    );
-
-    zoomRaycaster.setFromCamera(ndc, camera);
-
-    // 1. Szukamy punktu 3D pod kursorem (najpierw na obiektach, potem na płaszczyźnie płyty)
-    let hitPoint = new THREE.Vector3();
-    const hits = zoomRaycaster.intersectObjects(sceneObjects, false);
-
-    if (hits.length > 0) {
-        hitPoint.copy(hits[0].point);
-    } else {
-        const planeHit = zoomRaycaster.ray.intersectPlane(groundPlane, hitPoint);
-        if (!planeHit) {
-            // Jeśli patrzymy prawie poziomo w niebo, bierzemy punkt wzdłuż promienia
-            zoomRaycaster.ray.at(orbitControls.target.distanceTo(camera.position), hitPoint);
-        }
-    }
-
-    // Ograniczenie punktu docelowego do rozsądnego obszaru wokół płyty
-    hitPoint.x = THREE.MathUtils.clamp(hitPoint.x, -250, 250);
-    hitPoint.z = THREE.MathUtils.clamp(hitPoint.z, -250, 250);
-    hitPoint.y = Math.max(0, hitPoint.y);
-
-    // 2. Normalizacja kroku kółka (działa identycznie na myszkach i gładzikach)
-    const delta = Math.sign(event.deltaY);
-    const zoomFactor = delta > 0 ? 1.12 : 0.89; // Płynny krok ok. 11%
-
-    // 3. Skalujemy odległość kamery od punktu pod kursorem (prawdziwy Zoom-to-Cursor)
-    const offsetCam = camera.position.clone().sub(hitPoint);
-    const newDist = offsetCam.length() * zoomFactor;
-
-    if (newDist < orbitControls.minDistance || newDist > orbitControls.maxDistance) {
-        return;
-    }
-
-    offsetCam.multiplyScalar(zoomFactor);
-    const newCamPos = hitPoint.clone().add(offsetCam);
-
-    // Nie pozwalamy kamerze zejść pod płytę (Y >= 1.5 mm)
-    if (newCamPos.y < 1.5) {
-        newCamPos.y = 1.5;
-    }
-
-    // Przesuwamy również punkt obrotu (target) proporcjonalnie w stronę kursora
-    const offsetTarget = orbitControls.target.clone().sub(hitPoint).multiplyScalar(zoomFactor);
-    const newTarget = hitPoint.clone().add(offsetTarget);
-    newTarget.y = Math.max(0, newTarget.y);
-
-    camera.position.copy(newCamPos);
-    orbitControls.target.copy(newTarget);
-    orbitControls.update();
-}, { passive: false });
-
-function smoothMoveCamera(newTarget, newCamPos) {
-    cameraAnim = {
-        startPos: camera.position.clone(),
-        endPos: newCamPos.clone(),
-        startTarget: orbitControls.target.clone(),
-        endTarget: newTarget.clone(),
-        progress: 0
-    };
-}
-
-function focusOnObject(mesh) {
-    if (!mesh) return;
-    const { box, size } = getObjectBounds(mesh);
-    const center = new THREE.Vector3();
-    box.getCenter(center);
-
-    const maxDim = Math.max(size.x, size.y, size.z, 10);
-    const dist = maxDim * 2.4;
-
-    const dir = camera.position.clone().sub(orbitControls.target).normalize();
-    if (dir.lengthSq() < 0.001) dir.set(1, 1, 1).normalize();
-
-    const newCamPos = center.clone().add(dir.multiplyScalar(dist));
-    newCamPos.y = Math.max(newCamPos.y, center.y + maxDim * 0.6);
-
-    smoothMoveCamera(center, newCamPos);
-}
-
-function fitAllObjects() {
-    if (sceneObjects.length === 0) {
-        smoothMoveCamera(new THREE.Vector3(0, 0, 0), new THREE.Vector3(80, 80, 100));
-        return;
-    }
-
-    const totalBox = new THREE.Box3();
-    sceneObjects.forEach(obj => {
-        obj.updateMatrixWorld(true);
-        totalBox.expandByObject(obj);
-    });
-
-    const center = new THREE.Vector3();
-    const size = new THREE.Vector3();
-    totalBox.getCenter(center);
-    totalBox.getSize(size);
-
-    const maxDim = Math.max(size.x, size.y, size.z, 25);
-    const dist = maxDim * 2.2;
-
-    const dir = camera.position.clone().sub(orbitControls.target).normalize();
-    if (dir.lengthSq() < 0.001) dir.set(1, 1, 1).normalize();
-
-    const newCamPos = center.clone().add(dir.multiplyScalar(dist));
-    newCamPos.y = Math.max(newCamPos.y, center.y + maxDim * 0.7);
-
-    smoothMoveCamera(center, newCamPos);
-}
-
-// =========================================================================
-// 3. TEKSTURA OTWORU I FUNKCJE GEOMETRII
-// =========================================================================
 function createHoleTexture() {
     const canvas = document.createElement('canvas');
-    canvas.width = 64;
-    canvas.height = 64;
+    canvas.width = 64; canvas.height = 64;
     const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#555555';
-    ctx.fillRect(0, 0, 64, 64);
-    ctx.strokeStyle = '#999999';
-    ctx.lineWidth = 8;
-    ctx.beginPath();
-    ctx.moveTo(-16, 64);
-    ctx.lineTo(64, -16);
-    ctx.moveTo(0, 80);
-    ctx.lineTo(80, 0);
-    ctx.stroke();
+    ctx.fillStyle = '#555555'; ctx.fillRect(0, 0, 64, 64);
+    ctx.strokeStyle = '#999999'; ctx.lineWidth = 8;
+    ctx.beginPath(); ctx.moveTo(-16, 64); ctx.lineTo(64, -16); ctx.moveTo(0, 80); ctx.lineTo(80, 0); ctx.stroke();
     const tex = new THREE.CanvasTexture(canvas);
-    tex.wrapS = THREE.RepeatWrapping;
-    tex.wrapT = THREE.RepeatWrapping;
-    tex.repeat.set(4, 4);
+    tex.wrapS = THREE.RepeatWrapping; tex.wrapT = THREE.RepeatWrapping; tex.repeat.set(4, 4);
     return tex;
 }
 const holeTexture = createHoleTexture();
@@ -352,11 +289,7 @@ function applyObjectAppearance(mesh) {
     mesh.material.needsUpdate = true;
 }
 
-// =========================================================================
-// 4. GENEROWANIE MENU I DODAWANIE OBIEKTÓW
-// =========================================================================
 const shapesListEl = document.getElementById('shapes-list');
-
 MOJE_OBIEKTY.forEach((item) => {
     const btn = document.createElement('button');
     btn.className = 'shape-btn';
@@ -375,23 +308,10 @@ MOJE_OBIEKTY.forEach((item) => {
 function createMeshFromTemplate(item, savedData = null) {
     const geometry = item.stworzGeometrie();
     const color = savedData ? savedData.solidColor : item.kolor;
-
-    const material = new THREE.MeshStandardMaterial({
-        color: color,
-        roughness: 0.4,
-        metalness: 0.1
-    });
-
+    const material = new THREE.MeshStandardMaterial({ color: color, roughness: 0.4, metalness: 0.1 });
     const mesh = new THREE.Mesh(geometry, material);
-    mesh.castShadow = true;
-    mesh.receiveShadow = true;
-    mesh.name = item.nazwa;
-    mesh.userData = {
-        templateId: item.id,
-        solidColor: color,
-        isHole: savedData ? savedData.isHole : false
-    };
-
+    mesh.castShadow = true; mesh.receiveShadow = true; mesh.name = item.nazwa;
+    mesh.userData = { templateId: item.id, solidColor: color, isHole: savedData ? savedData.isHole : false };
     if (savedData) {
         mesh.position.fromArray(savedData.position);
         mesh.rotation.fromArray(savedData.rotation);
@@ -399,13 +319,11 @@ function createMeshFromTemplate(item, savedData = null) {
     } else {
         dropToWorkplane(mesh);
     }
-
     applyObjectAppearance(mesh);
     return mesh;
 }
-
 // =========================================================================
-// 5. ZAZNACZANIE, PODWÓJNE KLIKNIĘCIE I INSPEKTOR WYMIARÓW (MM)
+// 4. ZAZNACZANIE, INSPEKTOR WYMIARÓW (MM), DUPLIKOWANIE I SKRÓTY
 // =========================================================================
 const raycaster = new THREE.Raycaster();
 const mouse = new THREE.Vector2();
@@ -440,18 +358,8 @@ renderer.domElement.addEventListener('pointerdown', (event) => {
     }
 });
 
-renderer.domElement.addEventListener('dblclick', (event) => {
-    const rect = renderer.domElement.getBoundingClientRect();
-    mouse.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    mouse.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    raycaster.setFromCamera(mouse, camera);
-    const intersects = raycaster.intersectObjects(sceneObjects, false);
-
-    if (intersects.length > 0) {
-        selectObject(intersects[0].object);
-        focusOnObject(intersects[0].object);
-    }
+renderer.domElement.addEventListener('dblclick', () => {
+    if (selectedObject) focusSelected();
 });
 
 function selectObject(mesh) {
@@ -469,13 +377,11 @@ function deselectObject() {
 
 function updateInspector() {
     if (!selectedObject) return;
-
     colorPicker.value = selectedObject.userData.solidColor;
     btnModeSolid.classList.toggle('active', !selectedObject.userData.isHole);
     btnModeHole.classList.toggle('active', selectedObject.userData.isHole);
 
     const { box, size } = getObjectBounds(selectedObject);
-
     inputDimX.value = Number(size.x.toFixed(2));
     inputDimY.value = Number(size.y.toFixed(2));
     inputDimZ.value = Number(size.z.toFixed(2));
@@ -547,13 +453,11 @@ inputPosY.addEventListener('change', (e) => {
     const val = Math.max(0, parseFloat(e.target.value));
     if (!selectedObject || isNaN(val)) return;
     const { box } = getObjectBounds(selectedObject);
-    const diff = val - box.min.y;
-    selectedObject.position.y += diff;
+    selectedObject.position.y += (val - box.min.y);
     updateInspector();
     saveProjectToLocal();
 });
 
-// Przyciski narzędzi na górnym pasku
 const btnTranslate = document.getElementById('btn-translate');
 const btnRotate = document.getElementById('btn-rotate');
 const btnScale = document.getElementById('btn-scale');
@@ -568,6 +472,11 @@ btnTranslate.onclick = () => setTransformMode('translate', btnTranslate);
 btnRotate.onclick = () => setTransformMode('rotate', btnRotate);
 btnScale.onclick = () => setTransformMode('scale', btnScale);
 
+const btnFocus = document.getElementById('btn-focus');
+if (btnFocus) btnFocus.onclick = focusSelected;
+const btnFitAll = document.getElementById('btn-fit-all');
+if (btnFitAll) btnFitAll.onclick = fitAllObjects;
+
 document.getElementById('btn-drop').onclick = () => {
     if (!selectedObject) return;
     dropToWorkplane(selectedObject);
@@ -575,13 +484,26 @@ document.getElementById('btn-drop').onclick = () => {
     saveProjectToLocal();
 };
 
-document.getElementById('btn-focus').onclick = () => {
-    if (selectedObject) focusOnObject(selectedObject);
-};
+function duplicateSelected() {
+    if (!selectedObject) return;
+    const template = MOJE_OBIEKTY.find(t => t.id === selectedObject.userData.templateId);
+    if (!template) return;
+    const saved = {
+        solidColor: selectedObject.userData.solidColor,
+        isHole: selectedObject.userData.isHole,
+        position: [selectedObject.position.x + 10, selectedObject.position.y, selectedObject.position.z + 10],
+        rotation: [selectedObject.rotation.x, selectedObject.rotation.y, selectedObject.rotation.z],
+        scale: selectedObject.scale.toArray()
+    };
+    const clone = createMeshFromTemplate(template, saved);
+    scene.add(clone);
+    sceneObjects.push(clone);
+    selectObject(clone);
+    saveProjectToLocal();
+}
 
-document.getElementById('btn-fit-all').onclick = () => {
-    fitAllObjects();
-};
+const btnDup = document.getElementById('btn-duplicate');
+if (btnDup) btnDup.onclick = duplicateSelected;
 
 function deleteSelected() {
     if (!selectedObject) return;
@@ -595,20 +517,16 @@ function deleteSelected() {
 
 document.getElementById('btn-delete').onclick = deleteSelected;
 
-// Skróty klawiszowe
 window.addEventListener('keydown', (e) => {
-    if (document.activeElement && document.activeElement.tagName === 'INPUT') return;
-
+    if (document.activeElement && ['INPUT', 'SELECT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+    if (e.ctrlKey && (e.key === 'd' || e.key === 'D')) {
+        e.preventDefault();
+        duplicateSelected();
+        return;
+    }
     if (e.key === 'w' || e.key === 'W') setTransformMode('translate', btnTranslate);
     if (e.key === 'e' || e.key === 'E') setTransformMode('rotate', btnRotate);
     if (e.key === 'r' || e.key === 'R') setTransformMode('scale', btnScale);
-    if (e.key === 'f' || e.key === 'F') {
-        if (selectedObject) focusOnObject(selectedObject);
-    }
-    if (e.key === 'Home') {
-        e.preventDefault();
-        fitAllObjects();
-    }
     if (e.key === 'd' || e.key === 'D') {
         if (selectedObject) {
             dropToWorkplane(selectedObject);
@@ -616,11 +534,13 @@ window.addEventListener('keydown', (e) => {
             saveProjectToLocal();
         }
     }
+    if (e.key === 'f' || e.key === 'F') focusSelected();
+    if (e.key === 'Home') fitAllObjects();
     if (e.key === 'Delete') deleteSelected();
 });
 
 // =========================================================================
-// 6. ZAPIS I ODCZYT PROJEKTU (LOCALSTORAGE + PLIK JSON)
+// 5. ZAPIS I ODCZYT PROJEKTU (LOCALSTORAGE + PLIK JSON)
 // =========================================================================
 const STORAGE_KEY = 'moj_cad_3d_autosave';
 
@@ -647,7 +567,6 @@ function loadSceneFromData(dataArray) {
     deselectObject();
     sceneObjects.forEach(obj => scene.remove(obj));
     sceneObjects.length = 0;
-
     dataArray.forEach(itemData => {
         const template = MOJE_OBIEKTY.find(t => t.id === itemData.templateId);
         if (template) {
@@ -685,214 +604,3 @@ fileInput.addEventListener('change', (e) => {
     reader.onload = (ev) => {
         try {
             const parsed = JSON.parse(ev.target.result);
-            if (Array.isArray(parsed)) loadSceneFromData(parsed);
-        } catch (err) {
-            alert('Nieprawidłowy plik projektu!');
-        }
-    };
-    reader.readAsText(file);
-    fileInput.value = '';
-});
-
-document.getElementById('btn-clear-scene').onclick = () => {
-    if (sceneObjects.length === 0) return;
-    if (confirm('Czy na pewno wyczyścić całą scenę?')) {
-        loadSceneFromData([]);
-    }
-};
-
-// =========================================================================
-// 7. WYCINANIE OTWORÓW (CSG), ZAMYKANIE SIATEK I EKSPORT STL / 3MF
-// =========================================================================
-function prepareClosedGeometry(mesh) {
-    let geom = mesh.geometry.clone();
-    mesh.updateMatrixWorld(true);
-    geom.applyMatrix4(mesh.matrixWorld);
-
-    if (geom.attributes.uv) geom.deleteAttribute('uv');
-    if (geom.attributes.normal) geom.deleteAttribute('normal');
-
-    geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
-    geom.computeVertexNormals();
-    return geom;
-}
-
-function buildFinalMeshesWithCSG() {
-    const solids = sceneObjects.filter(o => !o.userData.isHole);
-    const holes = sceneObjects.filter(o => o.userData.isHole);
-
-    if (solids.length === 0) return [];
-
-    const evaluator = new Evaluator();
-
-    const holeBrushes = holes.map(h => {
-        const geom = prepareClosedGeometry(h);
-        const brush = new Brush(geom);
-        brush.updateMatrixWorld();
-        return { brush, box: new THREE.Box3().setFromBufferAttribute(geom.attributes.position) };
-    });
-
-    const resultList = [];
-
-    solids.forEach(solid => {
-        const solidGeom = prepareClosedGeometry(solid);
-        const solidBox = new THREE.Box3().setFromBufferAttribute(solidGeom.attributes.position);
-        let currentBrush = new Brush(solidGeom);
-        currentBrush.updateMatrixWorld();
-
-        holeBrushes.forEach(hb => {
-            if (solidBox.intersectsBox(hb.box)) {
-                currentBrush = evaluator.evaluate(currentBrush, hb.brush, SUBTRACTION);
-            }
-        });
-
-        let finalGeom = currentBrush.geometry;
-        if (finalGeom.attributes.uv) finalGeom.deleteAttribute('uv');
-        finalGeom = BufferGeometryUtils.mergeVertices(finalGeom, 1e-4);
-        finalGeom.computeVertexNormals();
-
-        resultList.push({
-            geometry: finalGeom,
-            color: solid.userData.solidColor
-        });
-    });
-
-    return resultList;
-}
-
-function downloadBlob(blob, filename) {
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = filename;
-    link.click();
-    URL.revokeObjectURL(link.href);
-}
-
-document.getElementById('btn-export-stl').onclick = () => {
-    const parts = buildFinalMeshesWithCSG();
-    if (parts.length === 0) return alert('Dodaj najpierw przynajmniej jedną Bryłę (nie sam Otwór)!');
-
-    const group = new THREE.Group();
-    parts.forEach(p => {
-        const m = new THREE.Mesh(p.geometry);
-        group.add(m);
-    });
-
-    const exporter = new STLExporter();
-    const result = exporter.parse(group, { binary: true });
-    const blob = new Blob([result], { type: 'application/octet-stream' });
-    downloadBlob(blob, 'moj-projekt.stl');
-};
-
-document.getElementById('btn-export-3mf').onclick = async () => {
-    const parts = buildFinalMeshesWithCSG();
-    if (parts.length === 0) return alert('Dodaj najpierw przynajmniej jedną Bryłę!');
-
-    const JSZipModule = await import('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
-    const JSZip = JSZipModule.default;
-    const zip = new JSZip();
-
-    let baseMaterialsXml = '';
-    let objectsXml = '';
-    let buildXml = '';
-
-    parts.forEach((part, index) => {
-        const matIdx = index;
-        const objId = index + 1;
-        const hexColor = part.color.toUpperCase() + 'FF';
-
-        baseMaterialsXml += `<base name="Kolor_${objId}" displaycolor="${hexColor}" />
-`;
-
-        const pos = part.geometry.attributes.position;
-        const idx = part.geometry.index;
-
-        let verticesXml = '';
-        for (let i = 0; i < pos.count; i++) {
-            const x = pos.getX(i).toFixed(4);
-            const y = (-pos.getZ(i)).toFixed(4);
-            const z = pos.getY(i).toFixed(4);
-            verticesXml += `<vertex x="${x}" y="${y}" z="${z}" />
-`;
-        }
-
-        let trianglesXml = '';
-        if (idx) {
-            for (let i = 0; i < idx.count; i += 3) {
-                trianglesXml += `<triangle v1="${idx.getX(i)}" v2="${idx.getX(i+1)}" v3="${idx.getX(i+2)}" pid="1" p1="${matIdx}" />
-`;
-            }
-        } else {
-            for (let i = 0; i < pos.count; i += 3) {
-                trianglesXml += `<triangle v1="${i}" v2="${i+1}" v3="${i+2}" pid="1" p1="${matIdx}" />
-`;
-            }
-        }
-
-        objectsXml += `
-        <object id="${objId}" type="model" pid="1" pindex="${matIdx}">
-            <mesh>
-                <vertices>${verticesXml}</vertices>
-                <triangles>${trianglesXml}</triangles>
-            </mesh>
-        </object>`;
-        buildXml += `<item objectid="${objId}" />
-`;
-    });
-
-    const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
-<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">
-    <resources>
-        <basematerials id="1">
-            ${baseMaterialsXml}
-        </basematerials>
-        ${objectsXml}
-    </resources>
-    <build>${buildXml}</build>
-</model>`;
-
-    const contentTypesXml = `<?xml version="1.0" encoding="UTF-8"?>
-<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
-    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
-    <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
-</Types>`;
-
-    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
-<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
-    <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel" />
-</Relationships>`;
-
-    zip.file('[Content_Types].xml', contentTypesXml);
-    zip.folder('_rels').file('.rels', relsXml);
-    zip.folder('3D').file('3dmodel.model', modelXml);
-
-    const blob = await zip.generateAsync({ type: 'blob' });
-    downloadBlob(blob, 'moj-projekt-kolor.3mf');
-};
-
-// =========================================================================
-// 8. PĘTLA RENDEROWANIA I RESPONSYWNOŚĆ
-// =========================================================================
-window.addEventListener('resize', () => {
-    camera.aspect = container.clientWidth / container.clientHeight;
-    camera.updateProjectionMatrix();
-    renderer.setSize(container.clientWidth, container.clientHeight);
-});
-
-function animate() {
-    requestAnimationFrame(animate);
-
-    if (cameraAnim) {
-        cameraAnim.progress = Math.min(1, cameraAnim.progress + 0.08);
-        const ease = 1 - Math.pow(1 - cameraAnim.progress, 3);
-        camera.position.lerpVectors(cameraAnim.startPos, cameraAnim.endPos, ease);
-        orbitControls.target.lerpVectors(cameraAnim.startTarget, cameraAnim.endTarget, ease);
-        if (cameraAnim.progress >= 1) {
-            cameraAnim = null;
-        }
-    }
-
-    orbitControls.update();
-    renderer.render(scene, camera);
-}
-animate();
