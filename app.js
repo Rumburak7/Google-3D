@@ -41,7 +41,7 @@ const MOJE_OBIEKTY = [
 function createThreadGeometry(diameter, pitch, length, radialSegs = 36) {
     const rMajor = diameter / 2;
     const rMinor = Math.max(0.5, rMajor - 0.6134 * pitch);
-    const turns = Math.max(1, length / pitch);
+    const turns = Math.max(1, (length + pitch) / pitch);
     const totalSteps = Math.ceil(turns * radialSegs);
     const stepAngle = (Math.PI * 2) / radialSegs;
 
@@ -52,7 +52,7 @@ function createThreadGeometry(diameter, pitch, length, radialSegs = 36) {
         const angle = i * stepAngle;
         const cos = Math.cos(angle);
         const sin = Math.sin(angle);
-        const yBase = (i / radialSegs) * pitch;
+        const yBase = (i / radialSegs - 1) * pitch;
 
         const profile = [
             { r: rMinor, y: yBase },
@@ -62,8 +62,9 @@ function createThreadGeometry(diameter, pitch, length, radialSegs = 36) {
         ];
 
         for (let p = 0; p < 4; p++) {
-            const py = Math.min(length, Math.max(0, profile[p].y));
-            const pr = (py <= 0 || py >= length) ? rMinor : profile[p].r;
+            const rawY = profile[p].y;
+            const py = Math.min(length, Math.max(0, rawY));
+            const pr = (rawY <= 0 || rawY >= length) ? rMinor : profile[p].r;
             vertices.push(pr * cos, py, pr * sin);
         }
     }
@@ -92,17 +93,16 @@ function createThreadGeometry(diameter, pitch, length, radialSegs = 36) {
     let geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geom.setIndex(indices);
-        geom = geom.toNonIndexed();
+    geom = geom.toNonIndexed();
     geom.computeVertexNormals();
     geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
-
     return geom;
 }
 
 function createHollowNutGeometry(outerRadius, innerDiameter, pitch, height, radialSegs = 36) {
     const rMajor = innerDiameter / 2;
     const rMinor = Math.max(0.5, rMajor - 0.6134 * pitch);
-    const turns = Math.max(1, height / pitch);
+    const turns = Math.max(1, (height + pitch) / pitch);
     const totalSteps = Math.ceil(turns * radialSegs);
     const stepAngle = (Math.PI * 2) / radialSegs;
 
@@ -115,7 +115,7 @@ function createHollowNutGeometry(outerRadius, innerDiameter, pitch, height, radi
         const sin = Math.sin(angle);
         const hexSector = ((angle % (Math.PI / 3)) + (Math.PI / 3)) % (Math.PI / 3) - (Math.PI / 6);
         const rHex = outerRadius * (Math.cos(Math.PI / 6) / Math.cos(hexSector));
-        const yBase = (i / radialSegs) * pitch;
+        const yBase = (i / radialSegs - 1) * pitch;
 
         const profile = [
             { r: rMajor, y: yBase },
@@ -124,10 +124,10 @@ function createHollowNutGeometry(outerRadius, innerDiameter, pitch, height, radi
             { r: rMajor, y: yBase + pitch }
         ];
 
-        // 0..3: gwint wewnętrzny, 4: zewnętrzna ścianka sześciokątna dół, 5: zewnętrzna ścianka góra
         for (let p = 0; p < 4; p++) {
-            const py = Math.min(height, Math.max(0, profile[p].y));
-            const pr = (py <= 0 || py >= height) ? rMajor : profile[p].r;
+            const rawY = profile[p].y;
+            const py = Math.min(height, Math.max(0, rawY));
+            const pr = (rawY <= 0 || rawY >= height) ? rMajor : profile[p].r;
             vertices.push(pr * cos, py, pr * sin);
         }
         vertices.push(rHex * cos, 0, rHex * sin);
@@ -137,18 +137,14 @@ function createHollowNutGeometry(outerRadius, innerDiameter, pitch, height, radi
     for (let i = 0; i < totalSteps; i++) {
         const base = i * 6;
         const next = (i + 1) * 6;
-        // Gwint wewnętrzny (odwrócone normalne do wewnątrz)
         for (let p = 0; p < 3; p++) {
             indices.push(base + p, next + p, base + p + 1);
             indices.push(next + p, next + p + 1, base + p + 1);
         }
-        // Ścianka zewnętrzna sześciokąta
         indices.push(base + 4, base + 5, next + 4);
         indices.push(next + 4, base + 5, next + 5);
-        // Dolna podstawa (pierścień)
         indices.push(base + 0, base + 4, next + 0);
         indices.push(next + 0, base + 4, next + 4);
-        // Górna podstawa (pierścień)
         indices.push(base + 3, next + 3, base + 5);
         indices.push(next + 3, next + 5, base + 5);
     }
@@ -156,8 +152,9 @@ function createHollowNutGeometry(outerRadius, innerDiameter, pitch, height, radi
     let geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geom.setIndex(indices);
-    geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
+    geom = geom.toNonIndexed();
     geom.computeVertexNormals();
+    geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
     return geom;
 }
 
@@ -176,14 +173,14 @@ function generateScrewGeometry(params) {
         if (headGeom.attributes.uv) headGeom.deleteAttribute('uv');
         headGeom = headGeom.toNonIndexed();
 
-        let shaftGeom = createThreadGeometry(params.diameter, params.pitch, params.length);
-        shaftGeom.translate(0, params.headH - 0.05, 0);
+        let shaftGeom = createThreadGeometry(params.diameter, params.pitch, params.length + 0.5);
+        shaftGeom.translate(0, params.headH - 0.5, 0);
         if (shaftGeom.attributes.uv) shaftGeom.deleteAttribute('uv');
         shaftGeom = shaftGeom.toNonIndexed();
 
         let combined = BufferGeometryUtils.mergeGeometries([headGeom, shaftGeom], false);
-        combined = BufferGeometryUtils.mergeVertices(combined, 1e-4);
         combined.computeVertexNormals();
+        combined = BufferGeometryUtils.mergeVertices(combined, 1e-4);
         combined.center();
         return combined;
     } else {
@@ -192,6 +189,7 @@ function generateScrewGeometry(params) {
         return nut;
     }
 }
+
 
 
 // =========================================================================
