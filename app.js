@@ -38,7 +38,7 @@ const MOJE_OBIEKTY = [
 // =========================================================================
 // 2. GENERATOR ŚRUB I NAKRĘTEK METRYCZNYCH (ISO)
 // =========================================================================
-function createThreadGeometry(diameter, pitch, length, radialSegs = 40) {
+function createThreadGeometry(diameter, pitch, length, radialSegs = 36) {
     const rMajor = diameter / 2;
     const rMinor = Math.max(0.5, rMajor - 0.6134 * pitch);
     const turns = Math.max(1, length / pitch);
@@ -97,41 +97,100 @@ function createThreadGeometry(diameter, pitch, length, radialSegs = 40) {
     return geom;
 }
 
+function createHollowNutGeometry(outerRadius, innerDiameter, pitch, height, radialSegs = 36) {
+    const rMajor = innerDiameter / 2;
+    const rMinor = Math.max(0.5, rMajor - 0.6134 * pitch);
+    const turns = Math.max(1, height / pitch);
+    const totalSteps = Math.ceil(turns * radialSegs);
+    const stepAngle = (Math.PI * 2) / radialSegs;
+
+    const vertices = [];
+    const indices = [];
+
+    for (let i = 0; i <= totalSteps; i++) {
+        const angle = i * stepAngle;
+        const cos = Math.cos(angle);
+        const sin = Math.sin(angle);
+        const hexSector = ((angle % (Math.PI / 3)) + (Math.PI / 3)) % (Math.PI / 3) - (Math.PI / 6);
+        const rHex = outerRadius * (Math.cos(Math.PI / 6) / Math.cos(hexSector));
+        const yBase = (i / radialSegs) * pitch;
+
+        const profile = [
+            { r: rMajor, y: yBase },
+            { r: rMinor, y: yBase + 0.375 * pitch },
+            { r: rMinor, y: yBase + 0.625 * pitch },
+            { r: rMajor, y: yBase + pitch }
+        ];
+
+        // 0..3: gwint wewnętrzny, 4: zewnętrzna ścianka sześciokątna dół, 5: zewnętrzna ścianka góra
+        for (let p = 0; p < 4; p++) {
+            const py = Math.min(height, Math.max(0, profile[p].y));
+            const pr = (py <= 0 || py >= height) ? rMajor : profile[p].r;
+            vertices.push(pr * cos, py, pr * sin);
+        }
+        vertices.push(rHex * cos, 0, rHex * sin);
+        vertices.push(rHex * cos, height, rHex * sin);
+    }
+
+    for (let i = 0; i < totalSteps; i++) {
+        const base = i * 6;
+        const next = (i + 1) * 6;
+        // Gwint wewnętrzny (odwrócone normalne do wewnątrz)
+        for (let p = 0; p < 3; p++) {
+            indices.push(base + p, next + p, base + p + 1);
+            indices.push(next + p, next + p + 1, base + p + 1);
+        }
+        // Ścianka zewnętrzna sześciokąta
+        indices.push(base + 4, base + 5, next + 4);
+        indices.push(next + 4, base + 5, next + 5);
+        // Dolna podstawa (pierścień)
+        indices.push(base + 0, base + 4, next + 0);
+        indices.push(next + 0, base + 4, next + 4);
+        // Górna podstawa (pierścień)
+        indices.push(base + 3, next + 3, base + 5);
+        indices.push(next + 3, next + 5, base + 5);
+    }
+
+    let geom = new THREE.BufferGeometry();
+    geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
+    geom.setIndex(indices);
+    geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
+    geom.computeVertexNormals();
+    return geom;
+}
+
 function generateScrewGeometry(params) {
-    const evaluator = new Evaluator();
     if (params.type === 'rod') {
         const rod = createThreadGeometry(params.diameter, params.pitch, params.length);
         rod.center();
         return rod;
     }
+
     const hexRadius = params.headW / Math.sqrt(3);
-    const headGeom = new THREE.CylinderGeometry(hexRadius, hexRadius, params.headH, 6);
-    headGeom.translate(0, params.headH / 2, 0);
-    const headBrush = new Brush(BufferGeometryUtils.mergeVertices(headGeom, 1e-4));
-    headBrush.updateMatrixWorld();
 
     if (params.type === 'bolt') {
-        const shaftGeom = createThreadGeometry(params.diameter, params.pitch, params.length);
-        shaftGeom.translate(0, params.headH - 0.1, 0);
-        const shaftBrush = new Brush(shaftGeom);
-        shaftBrush.updateMatrixWorld();
-        const res = evaluator.evaluate(headBrush, shaftBrush, ADDITION);
-        const fg = BufferGeometryUtils.mergeVertices(res.geometry, 1e-4);
-        fg.computeVertexNormals();
-        fg.center();
-        return fg;
+        let headGeom = new THREE.CylinderGeometry(hexRadius, hexRadius, params.headH, 6);
+        headGeom.translate(0, params.headH / 2, 0);
+        if (headGeom.attributes.uv) headGeom.deleteAttribute('uv');
+        headGeom = headGeom.toNonIndexed();
+
+        let shaftGeom = createThreadGeometry(params.diameter, params.pitch, params.length);
+        shaftGeom.translate(0, params.headH - 0.05, 0);
+        if (shaftGeom.attributes.uv) shaftGeom.deleteAttribute('uv');
+        shaftGeom = shaftGeom.toNonIndexed();
+
+        let combined = BufferGeometryUtils.mergeGeometries([headGeom, shaftGeom], false);
+        combined = BufferGeometryUtils.mergeVertices(combined, 1e-4);
+        combined.computeVertexNormals();
+        combined.center();
+        return combined;
     } else {
-        const holeThread = createThreadGeometry(params.diameter + params.tolerance * 2, params.pitch, params.headH + 2);
-        holeThread.translate(0, -1, 0);
-        const holeBrush = new Brush(holeThread);
-        holeBrush.updateMatrixWorld();
-        const res = evaluator.evaluate(headBrush, holeBrush, SUBTRACTION);
-        const fg = BufferGeometryUtils.mergeVertices(res.geometry, 1e-4);
-        fg.computeVertexNormals();
-        fg.center();
-        return fg;
+        const nut = createHollowNutGeometry(hexRadius, params.diameter + params.tolerance * 2, params.pitch, params.headH);
+        nut.center();
+        return nut;
     }
 }
+
 
 // =========================================================================
 // 3. INICJALIZACJA SCENY 3D I KAMERY
