@@ -92,8 +92,10 @@ function createThreadGeometry(diameter, pitch, length, radialSegs = 36) {
     let geom = new THREE.BufferGeometry();
     geom.setAttribute('position', new THREE.Float32BufferAttribute(vertices, 3));
     geom.setIndex(indices);
-    geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
+        geom = geom.toNonIndexed();
     geom.computeVertexNormals();
+    geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
+
     return geom;
 }
 
