@@ -501,27 +501,33 @@ const zip = new JSZip();
 let baseMaterialsXml = '', objectsXml = '', buildXml = '';
 parts.forEach((part, index) => {
 const objId = index + 1;
-baseMaterialsXml += <base name="Kolor_${objId}" displaycolor="${part.color.toUpperCase()}FF" />\n;
-const pos = part.geometry.attributes.position;
-const idx = part.geometry.index;
-let verticesXml = '', trianglesXml = '';
-for (let i = 0; i < pos.count; i++) {
-verticesXml += <vertex x="${pos.getX(i).toFixed(4)}" y="${(-pos.getZ(i)).toFixed(4)}" z="${pos.getY(i).toFixed(4)}" />\n;
-}
-if (idx) {
-for (let i = 0; i < idx.count; i += 3) trianglesXml += <triangle v1="${idx.getX(i)}" v2="${idx.getX(i+1)}" v3="${idx.getX(i+2)}" pid="1" p1="${index}" />\n;
-} else {
-for (let i = 0; i < pos.count; i += 3) trianglesXml += <triangle v1="${i}" v2="${i+1}" v3="${i+2}" pid="1" p1="${index}" />\n;
-}
-objectsXml += <object id="${objId}" type="model" pid="1" pindex="${index}"><mesh><vertices>${verticesXml}</vertices><triangles>${trianglesXml}</triangles></mesh></object>;
-buildXml += <item objectid="${objId}" />\n;
-});
-const modelXml = <?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://microsoft.com"><resources><basematerials id="1">${baseMaterialsXml}</basematerials>${objectsXml}</resources><build>${buildXml}</build></model>;
-zip.file('[Content_Types].xml', <?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://openxmlformats.org"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" /><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" /></Types>);
-zip.folder('_rels').file('.rels', <?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://openxmlformats.org"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://microsoft.com" /></Relationships>);
-zip.folder('3D').file('3dmodel.model', modelXml);
-downloadBlob(await zip.generateAsync({ type: 'blob' }), 'moj-projekt-kolor.3mf');
-};
+    parts.forEach((part, index) => {
+        const objId = index + 1;
+        baseMaterialsXml += '<base name="Kolor_' + objId + '" displaycolor="' + part.color.toUpperCase() + 'FF" />\n';
+        const pos = part.geometry.attributes.position;
+        const idx = part.geometry.index;
+        let verticesXml = '', trianglesXml = '';
+        for (let i = 0; i < pos.count; i++) {
+            verticesXml += '<vertex x="' + pos.getX(i).toFixed(4) + '" y="' + (-pos.getZ(i)).toFixed(4) + '" z="' + pos.getY(i).toFixed(4) + '" />\n';
+        }
+        if (idx) {
+            for (let i = 0; i < idx.count; i += 3) {
+                trianglesXml += '<triangle v1="' + idx.getX(i) + '" v2="' + idx.getX(i+1) + '" v3="' + idx.getX(i+2) + '" pid="1" p1="' + index + '" />\n';
+            }
+        } else {
+            for (let i = 0; i < pos.count; i += 3) {
+                trianglesXml += '<triangle v1="' + i + '" v2="' + (i+1) + '" v3="' + (i+2) + '" pid="1" p1="' + index + '" />\n';
+            }
+        }
+        objectsXml += '<object id="' + objId + '" type="model" pid="1" pindex="' + index + '"><mesh><vertices>' + verticesXml + '</vertices><triangles>' + trianglesXml + '</triangles></mesh></object>';
+        buildXml += '<item objectid="' + objId + '" />\n';
+    });
+
+    const modelXml = '<?xml version="1.0" encoding="UTF-8"?><model unit="millimeter" xml:lang="en-US" xmlns="http://microsoft.com"><resources><basematerials id="1">' + baseMaterialsXml + '</basematerials>' + objectsXml + '</resources><build>' + buildXml + '</build></model>';
+    zip.file('[Content_Types].xml', '<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://openxmlformats.org"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" /><Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" /></Types>');
+    zip.folder('_rels').file('.rels', '<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://openxmlformats.org"><Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://microsoft.com" /></Relationships>');
+    zip.folder('3D').file('3dmodel.model', modelXml);
+
 // =========================================================================
 // 7. PĘTLA RENDEROWANIA I RESPONSYWNOŚĆ
 // =========================================================================
