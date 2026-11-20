@@ -582,25 +582,193 @@ const savedRaw = localStorage.getItem(STORAGE_KEY);
 if (savedRaw) {
     try {
         const parsed = JSON.parse(savedRaw);
-        if (Array.isArray(parsed)) loadSceneFromData(parsed);
-    } catch (e) {
-        console.warn('Błąd odczytu autozapisu:', e);
-    }
-}
+                    if (Array.isArray(parsed)) loadSceneFromData(parsed);
+        } catch (err) {
+            alert('Nieprawidłowy plik projektu!');
+        }
+    };
+    reader.readAsText(file);
+    fileInput.value = '';
+});
 
-document.getElementById('btn-save-file').onclick = () => {
-    const json = JSON.stringify(serializeScene(), null, 2);
-    const blob = new Blob([json], { type: 'application/json' });
-    downloadBlob(blob, 'projekt-3d.json');
+document.getElementById('btn-clear-scene').onclick = () => {
+    if (sceneObjects.length === 0) return;
+    if (confirm('Czy na pewno wyczyścić całą scenę?')) {
+        loadSceneFromData([]);
+    }
 };
 
-const fileInput = document.getElementById('file-input');
-document.getElementById('btn-load-file').onclick = () => fileInput.click();
+// =========================================================================
+// 6. WYCINANIE OTWORÓW (CSG), ZAMYKANIE SIATEK I EKSPORT STL / 3MF
+// =========================================================================
+function prepareClosedGeometry(mesh) {
+    let geom = mesh.geometry.clone();
+    mesh.updateMatrixWorld(true);
+    geom.applyMatrix4(mesh.matrixWorld);
+    if (geom.attributes.uv) geom.deleteAttribute('uv');
+    if (geom.attributes.normal) geom.deleteAttribute('normal');
+    geom = BufferGeometryUtils.mergeVertices(geom, 1e-4);
+    geom.computeVertexNormals();
+    return geom;
+}
 
-fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-        try {
-            const parsed = JSON.parse(ev.target.result);
+function buildFinalMeshesWithCSG() {
+    const solids = sceneObjects.filter(o => !o.userData.isHole);
+    const holes = sceneObjects.filter(o => o.userData.isHole);
+    if (solids.length === 0) return [];
+
+    const evaluator = new Evaluator();
+    const holeBrushes = holes.map(h => {
+        const geom = prepareClosedGeometry(h);
+        const brush = new Brush(geom);
+        brush.updateMatrixWorld();
+        return { brush, box: new THREE.Box3().setFromBufferAttribute(geom.attributes.position) };
+    });
+
+    const resultList = [];
+    solids.forEach(solid => {
+        const solidGeom = prepareClosedGeometry(solid);
+        const solidBox = new THREE.Box3().setFromBufferAttribute(solidGeom.attributes.position);
+        let currentBrush = new Brush(solidGeom);
+        currentBrush.updateMatrixWorld();
+
+        holeBrushes.forEach(hb => {
+            if (solidBox.intersectsBox(hb.box)) {
+                currentBrush = evaluator.evaluate(currentBrush, hb.brush, SUBTRACTION);
+            }
+        });
+
+        let finalGeom = currentBrush.geometry;
+        if (finalGeom.attributes.uv) finalGeom.deleteAttribute('uv');
+        finalGeom = BufferGeometryUtils.mergeVertices(finalGeom, 1e-4);
+        finalGeom.computeVertexNormals();
+
+        resultList.push({
+            geometry: finalGeom,
+            color: solid.userData.solidColor
+        });
+    });
+
+    return resultList;
+}
+
+function downloadBlob(blob, filename) {
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = filename;
+    link.click();
+    URL.revokeObjectURL(link.href);
+}
+
+document.getElementById('btn-export-stl').onclick = () => {
+    const parts = buildFinalMeshesWithCSG();
+    if (parts.length === 0) return alert('Dodaj najpierw przynajmniej jedną Bryłę (nie sam Otwór)!');
+    const group = new THREE.Group();
+    parts.forEach(p => group.add(new THREE.Mesh(p.geometry)));
+    const exporter = new STLExporter();
+    const result = exporter.parse(group, { binary: true });
+    const blob = new Blob([result], { type: 'application/octet-stream' });
+    downloadBlob(blob, 'moj-projekt.stl');
+};
+
+document.getElementById('btn-export-3mf').onclick = async () => {
+    const parts = buildFinalMeshesWithCSG();
+    if (parts.length === 0) return alert('Dodaj najpierw przynajmniej jedną Bryłę!');
+    const JSZipModule = await import('https://jsdelivr.net');
+    const JSZip = JSZipModule.default;
+    const zip = new JSZip();
+
+    let baseMaterialsXml = '';
+    let objectsXml = '';
+    let buildXml = '';
+
+    parts.forEach((part, index) => {
+        const matIdx = index;
+        const objId = index + 1;
+        const hexColor = part.color.toUpperCase() + 'FF';
+        baseMaterialsXml += `<base name="Kolor_${objId}" displaycolor="${hexColor}" />\n`;
+
+        const pos = part.geometry.attributes.position;
+        const idx = part.geometry.index;
+        let verticesXml = '';
+        for (let i = 0; i < pos.count; i++) {
+            const x = pos.getX(i).toFixed(4);
+            const y = (-pos.getZ(i)).toFixed(4);
+            const z = pos.getY(i).toFixed(4);
+            verticesXml += `<vertex x="${x}" y="${y}" z="${z}" />\n`;
+        }
+
+        let trianglesXml = '';
+        if (idx) {
+            for (let i = 0; i < idx.count; i += 3) {
+                trianglesXml += `<triangle v1="${idx.getX(i)}" v2="${idx.getX(i+1)}" v3="${idx.getX(i+2)}" pid="1" p1="${matIdx}" />\n`;
+            }
+        } else {
+            for (let i = 0; i < pos.count; i += 3) {
+                trianglesXml += `<triangle v1="${i}" v2="${i+1}" v3="${i+2}" pid="1" p1="${matIdx}" />\n`;
+            }
+        }
+
+        objectsXml += `
+        <object id="${objId}" type="model" pid="1" pindex="${matIdx}">
+            <mesh>
+                <vertices>${verticesXml}</vertices>
+                <triangles>${trianglesXml}</triangles>
+            </mesh>
+        </object>`;
+        buildXml += `<item objectid="${objId}" />\n`;
+    });
+
+    const modelXml = `<?xml version="1.0" encoding="UTF-8"?>
+<model unit="millimeter" xml:lang="en-US" xmlns="http://microsoft.com">
+    <resources>
+        <basematerials id="1">
+            ${baseMaterialsXml}
+        </basematerials>
+        ${objectsXml}
+    </resources>
+    <build>${buildXml}</build>
+</model>`;
+
+    const contentTypesXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Types xmlns="http://openxmlformats.org">
+    <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml" />
+    <Default Extension="model" ContentType="application/vnd.ms-package.3dmanufacturing-3dmodel+xml" />
+</Types>`;
+
+    const relsXml = `<?xml version="1.0" encoding="UTF-8"?>
+<Relationships xmlns="http://openxmlformats.org">
+    <Relationship Target="/3D/3dmodel.model" Id="rel0" Type="http://microsoft.com" />
+</Relationships>`;
+
+    zip.file('[Content_Types].xml', contentTypesXml);
+    zip.folder('_rels').file('.rels', relsXml);
+    zip.folder('3D').file('3dmodel.model', modelXml);
+
+    const blob = await zip.generateAsync({ type: 'blob' });
+    downloadBlob(blob, 'moj-projekt-kolor.3mf');
+};
+
+// =========================================================================
+// 7. PĘTLA RENDEROWANIA I RESPONSYWNOŚĆ
+// =========================================================================
+window.addEventListener('resize', () => {
+    camera.aspect = container.clientWidth / container.clientHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(container.clientWidth, container.clientHeight);
+});
+
+function animate() {
+    requestAnimationFrame(animate);
+    if (camAnimTargetPos && camAnimTargetLook) {
+        camera.position.lerp(camAnimTargetPos, 0.14);
+        orbitControls.target.lerp(camAnimTargetLook, 0.14);
+        if (camera.position.distanceTo(camAnimTargetPos) < 0.2) {
+            camAnimTargetPos = null;
+            camAnimTargetLook = null;
+        }
+    }
+    orbitControls.update();
+    renderer.render(scene, camera);
+}
+animate();
